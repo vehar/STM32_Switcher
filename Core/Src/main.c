@@ -226,6 +226,15 @@ void antSwithUpdate_Hndl(void)
         CreateTimer(&antSwithTim, 1, 0, period, ACTIVE, antSwith_Hndl);
     }
 }
+
+//TODO:
+// Add pause, run, stop, step pins (step active in pause mode). Stop is more prioritive then pause
+// Add uart interface
+// Add LCD with statuses
+// Add control by buttons
+// Add control by FPV joystic
+// Add USB CDC interface
+
 /* USER CODE END 0 */
 
 /**
