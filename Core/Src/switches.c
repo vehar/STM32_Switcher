@@ -4,7 +4,10 @@
 extern const SwitchEntity *switchArray[];
 
 // Error handling function
-void handleError(const char *message) { printf("%s\n", message); }
+void handleError(const char *message)
+{
+    // printf("%s\n", message);
+}
 
 void setPins(const RFC_sel *ctrl)
 {

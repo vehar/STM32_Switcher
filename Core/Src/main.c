@@ -125,7 +125,6 @@ SoftTimer BlinkTim;
 void Blink_Hndl(void);
 
 SoftTimer AdcTim;
-SoftTimer PowOffTim;
 
 SoftTimer ProtectionTim;
 void Protection_Hndl(void);
@@ -138,6 +137,12 @@ void CaptureRdy_Hndl(void);
 
 SoftTimer gpioControlTim;
 void GpioControl(void);
+
+SoftTimer antSwithTim;
+void antSwith_Hndl(void);
+
+SoftTimer antSwithUpdateTim;
+void antSwithUpdate_Hndl(void);
 
 void FanSet(void);
 
@@ -166,7 +171,9 @@ double swr = 0;
 uint16_t T = 0;
 
 // Timer handlers ===========================================
-void Blink_Hndl(void) { led_Toggle; }
+void Blink_Hndl(void)
+{ /*led_Toggle; */
+}
 
 void PowerOffDelay_Hndl(void)
 {
@@ -180,6 +187,45 @@ void FanOff_Hndl(void)
     BIT_SET(pReg->CB.MAIN_CONTROL, FAN_AUTO); // If temperature is ok - switch off
 }
 
+void antSwith_Hndl(void)
+{
+    static int pos = 0;
+    static int switchIdx = 0;
+    static const SwitchEntity *sw = NULL;
+    if (!sw) // First init
+        sw = getSwitchEntityByIndex(switchIdx);
+
+    if (REG_CHANGED(CB.SWITCH_ENTITY_IDX))
+    {
+        switchIdx = pReg->CB.SWITCH_ENTITY_IDX;
+        sw = getSwitchEntityByIndex(switchIdx);
+        pos = 0;
+    }
+
+    if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_RUN))
+    {
+        SetAntennaSwitch(sw, pos);
+        pos = (pos < sw->numConfigs - 1) ? pos + 1 : 0;
+    }
+    else if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_MANUAL))
+    {
+        uint8_t manualPos = pReg->CB.SWITCH_MANUAL_POS;
+        SetAntennaSwitch(sw, manualPos);
+    }
+
+    led_Toggle;
+}
+
+void antSwithUpdate_Hndl(void)
+{
+    if (REG_CHANGED(CB.SWITCH_DELAY_MS_L) || REG_CHANGED(CB.SWITCH_DELAY_MS_H))
+    {
+        uint8_t periodH = pReg->CB.SWITCH_DELAY_MS_H;
+        uint8_t periodL = pReg->CB.SWITCH_DELAY_MS_L;
+        uint16_t period = (periodH << 8) | periodL;
+        CreateTimer(&antSwithTim, 1, 0, period, ACTIVE, antSwith_Hndl);
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -234,39 +280,38 @@ int main(void)
     pReg->CB.MIN_PWM = 60;
     pReg->CB.FAN_PWM = 250;
 
-    BIT_CLEAR(pReg->CB.MAIN_CONTROL, FAN_AUTO);
-    FanSet();
-    fan_on;
+    // BIT_CLEAR(pReg->CB.MAIN_CONTROL, FAN_AUTO);
+    // FanSet();
+    // fan_on;
 
     ADCproces();
     HAL_Delay(500);
 
-    PA1_Shutdown_on;
-    PA2_Shutdown_on;
-    PA3_Shutdown_on;
-    PA4_Shutdown_on;
-    PA5_Shutdown_on;
-    PA6_Shutdown_on;
+    pReg->CB.SWITCH_DELAY_MS_L = 0;
+    pReg->CB.SWITCH_DELAY_MS_H = 2; // 512ms default switch time
+    BIT_SET(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_RUN);
 
     // Pow off in case of invalid ADC values, or normal ON
-    Protection_Hndl();
+    // Protection_Hndl();
 
     //	Timer,	Rewrite, time, period, 	state, handler
     //	CreateTimer(&FanSpeedUpdTim, 0, 0, 		2000, 	ACTIVE, FanGet);
     // CreateTimer(&PaStatusUpdTim, 0, 100, 100, ACTIVE, PaStatusGet);
-    CreateTimer(&BlinkTim, 1, 150, 1000, ACTIVE, Blink_Hndl);
-    CreateTimer(&blinkUpdTim, 0, 0, 100, ACTIVE, blinkUpd_Hndl);
-    // CreateTimer(&AdcTim, 1, 0, 500, ACTIVE, ADCproces);
-    // CreateTimer(&ProtectionTim, 0, 0, 50, ACTIVE, Protection_Hndl);
+    // CreateTimer(&BlinkTim, 1, 150, 1000, ACTIVE, Blink_Hndl);
+    // CreateTimer(&blinkUpdTim, 0, 0, 100, ACTIVE, blinkUpd_Hndl);
+    //  CreateTimer(&AdcTim, 1, 0, 500, ACTIVE, ADCproces);
+    //  CreateTimer(&ProtectionTim, 0, 0, 50, ACTIVE, Protection_Hndl);
 
     // If temperature is ok - switch off
     // CreateTimer(&fanControlTim, 0, 200, 200, ACTIVE, fanControl);
 
-    // Update output val of GPIO
-    CreateTimer(&gpioControlTim, 0, 0, 10, ACTIVE, GpioControl);
-
     // After start clean the dust and stop till temperature rise!
     // CreateTimer(&FanOffTim, 0, 2000, 0, ACTIVE, FanOff_Hndl);
+
+    // Update output val of GPIO
+    CreateTimer(&gpioControlTim, 0, 0, 10, ACTIVE, GpioControl);
+    CreateTimer(&antSwithTim, 1, 150, 1000, ACTIVE, antSwith_Hndl);
+    CreateTimer(&antSwithUpdateTim, 0, 150, 1, ACTIVE, antSwithUpdate_Hndl);
 
     /* USER CODE END 2 */
 
@@ -281,9 +326,6 @@ int main(void)
     //         validAddr = i;
     // }
 
-    int pos = 0;
-    int switchIdx = 0;
-    const SwitchEntity *sw = getSwitchEntityByIndex(switchIdx);
     while (1)
     {
         /* USER CODE END WHILE */
@@ -293,27 +335,6 @@ int main(void)
 
         // PaSet();
         // Btn_Hndl();
-
-        if (REG_CHANGED(CB.SWITCH_ENTITY_IDX))
-        {
-            switchIdx = pReg->CB.SWITCH_ENTITY_IDX;
-            sw = getSwitchEntityByIndex(switchIdx);
-			pos = 0;
-        }
-
-        if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_RUN))
-        {
-            SetAntennaSwitch(sw, pos);
-            if (pos < sw->numConfigs - 1)
-                pos++;
-            else
-                pos = 0;
-        }
-        else if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_MANUAL))
-        {
-            uint8_t manualPos = pReg->CB.SWITCH_MANUAL_POS;
-            SetAntennaSwitch(sw, manualPos);
-        }
     }
     /* USER CODE END 3 */
 }
