@@ -9,6 +9,7 @@
 #include "i2c_slave.h"
 #include "reg_map.h"
 #include "sw_timers.h"
+#include "switches.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -23,6 +24,17 @@ extern map_t map;
 
 CAPTURE_CHANNELS_t IC_ch[4] = { 0 };
 
+typedef struct
+{
+    GPIO_TypeDef *port;
+    uint16_t pin;
+} PortPin;
+
+static const PortPin portPinMap[] = { { GPIOA, GPIO_PIN_2 },  { GPIOA, GPIO_PIN_3 },
+                                      { GPIOB, GPIO_PIN_3 },  { GPIOB, GPIO_PIN_5 },
+                                      { GPIOB, GPIO_PIN_6 },  { GPIOB, GPIO_PIN_7 },
+                                      { GPIOB, GPIO_PIN_13 }, { GPIOB, GPIO_PIN_15 },
+                                      { GPIOD, GPIO_PIN_2 } };
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -264,11 +276,14 @@ int main(void)
     // int scanRes = 1;
     // for (int i = 0; i < 127; i++)
     // {
-    //     scanRes = HAL_I2C_Master_Receive(&hi2c2, i << 1, (uint8_t *)&rx_data[0], 1, i2cTimeout);
-    //     if (scanRes == 0)
+    //     scanRes = HAL_I2C_Master_Receive(&hi2c2, i << 1, (uint8_t
+    //     *)&rx_data[0], 1, i2cTimeout); if (scanRes == 0)
     //         validAddr = i;
     // }
 
+    int pos = 0;
+    int switchIdx = 0;
+    const SwitchEntity *sw = getSwitchEntityByIndex(switchIdx);
     while (1)
     {
         /* USER CODE END WHILE */
@@ -276,8 +291,29 @@ int main(void)
         /* USER CODE BEGIN 3 */
         ProcessTimer();
 
-        PaSet();
-        Btn_Hndl();
+        // PaSet();
+        // Btn_Hndl();
+
+        if (REG_CHANGED(CB.SWITCH_ENTITY_IDX))
+        {
+            switchIdx = pReg->CB.SWITCH_ENTITY_IDX;
+            sw = getSwitchEntityByIndex(switchIdx);
+			pos = 0;
+        }
+
+        if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_RUN))
+        {
+            SetAntennaSwitch(sw, pos);
+            if (pos < sw->numConfigs - 1)
+                pos++;
+            else
+                pos = 0;
+        }
+        else if (BIT_CHECK(pReg->CB.SWITCH_CONTROL, SWITCH_CONTROL_MANUAL))
+        {
+            uint8_t manualPos = pReg->CB.SWITCH_MANUAL_POS;
+            SetAntennaSwitch(sw, manualPos);
+        }
     }
     /* USER CODE END 3 */
 }
@@ -785,55 +821,55 @@ void blinkUpd_Hndl(void)
     }
 }
 
-void PaStatusGet()
-{
-    uint8_t packSz = 16; // Get 16 regs from PA
-    uint8_t paFailCnt = 0;
+/*
+void PaStatusGet() {
+  uint8_t packSz = 16; // Get 16 regs from PA
+  uint8_t paFailCnt = 0;
 
-    foreach_pa()
+  foreach_pa() {
+    uint8_t res = 1;
+    memset(rx_data, 0, packSz);
+    res = HAL_I2C_Master_Transmit(&hi2c2, (pReg->PA[i].INST_I2C_ADR) << 1,
+                                  (uint8_t *)&rx_data[0], 1,
+                                  i2cTimeout); // Write 0
+    res += HAL_I2C_Master_Receive(&hi2c2, (pReg->PA[i].INST_I2C_ADR) << 1,
+                                  (uint8_t *)&rx_data[0], packSz, i2cTimeout);
+    if (res == 0) {
+      memcpy((void *)&pReg->PA[i], rx_data, packSz - 1); // Cpy 15 regs of PA
+
+      if (pReg->PA[i].TEMPERATURE >
+          pReg->PA[i].OVER_TEMP_SET) // TODO convert temp
+        BIT_SET(pReg->CB.OVER_TEMP_FLAG,
+                (i + 1)); // 0-bit = boxTemp, others - PA
+      else
+        BIT_CLEAR(pReg->CB.OVER_TEMP_FLAG,
+                  (i + 1)); // 0-bit = boxTemp, others - PA
+
+      pReg->PA[i].POWER_I = (uint8_t)Pavg_pad;
+      pReg->PA[i].POWER_F =
+          (uint8_t)((Pavg_pad - (float)pReg->PA[i].POWER_I) * 100);
+
+      pReg->PA[i].SWR_I = (uint8_t)swr;
+      pReg->PA[i].SWR_F = (uint8_t)((swr - (float)pReg->PA[i].SWR_I) * 100);
+    } else // Slave not responding
     {
-        uint8_t res = 1;
-        memset(rx_data, 0, packSz);
-        res = HAL_I2C_Master_Transmit(&hi2c2, (pReg->PA[i].INST_I2C_ADR) << 1,
-                                      (uint8_t *)&rx_data[0], 1,
-                                      i2cTimeout); // Write 0
-        res += HAL_I2C_Master_Receive(&hi2c2, (pReg->PA[i].INST_I2C_ADR) << 1,
-                                      (uint8_t *)&rx_data[0], packSz, i2cTimeout);
-        if (res == 0)
-        {
-            memcpy((void *)&pReg->PA[i], rx_data, packSz - 1); // Cpy 15 regs of PA
-
-            if (pReg->PA[i].TEMPERATURE > pReg->PA[i].OVER_TEMP_SET) // TODO convert temp
-                BIT_SET(pReg->CB.OVER_TEMP_FLAG, (i + 1));           // 0-bit = boxTemp, others - PA
-            else
-                BIT_CLEAR(pReg->CB.OVER_TEMP_FLAG, (i + 1)); // 0-bit = boxTemp, others - PA
-
-            pReg->PA[i].POWER_I = (uint8_t)Pavg_pad;
-            pReg->PA[i].POWER_F = (uint8_t)((Pavg_pad - (float)pReg->PA[i].POWER_I) * 100);
-
-            pReg->PA[i].SWR_I = (uint8_t)swr;
-            pReg->PA[i].SWR_F = (uint8_t)((swr - (float)pReg->PA[i].SWR_I) * 100);
-        }
-        else // Slave not responding
-        {
-            pReg->PA[i].STATUS = 0;
-        }
+      pReg->PA[i].STATUS = 0;
     }
+  }
 
-    // Crutch to make PAs work
-    foreach_pa()
-    {
-        if (pReg->PA[i].STATUS == 0)
-            paFailCnt++;
-    }
+  // Crutch to make PAs work
+  foreach_pa() {
+    if (pReg->PA[i].STATUS == 0)
+      paFailCnt++;
+  }
 
-    if (paFailCnt == PA_AMOUNT) // All failed, so this is i2c bus problem
-    {
-        HAL_I2C_DeInit(&hi2c2);
-        MX_I2C2_Init();
-    }
+  if (paFailCnt == PA_AMOUNT) // All failed, so this is i2c bus problem
+  {
+    HAL_I2C_DeInit(&hi2c2);
+    MX_I2C2_Init();
+  }
 }
-
+*/
 void PaSet()
 {
     uint8_t reg;
@@ -929,21 +965,9 @@ void PaSet()
     }
 }
 
-typedef struct
-{
-    GPIO_TypeDef *port;
-    uint16_t pin;
-} PortPin;
-
 void GpioControl()
 {
     uint8_t reg;
-
-    static const PortPin portPinMap[] = { { GPIOA, GPIO_PIN_2 },  { GPIOA, GPIO_PIN_3 },
-                                          { GPIOB, GPIO_PIN_3 },  { GPIOB, GPIO_PIN_5 },
-                                          { GPIOB, GPIO_PIN_6 },  { GPIOB, GPIO_PIN_7 },
-                                          { GPIOB, GPIO_PIN_13 }, { GPIOB, GPIO_PIN_15 },
-                                          { GPIOD, GPIO_PIN_2 } };
     foreach_io()
     {
         if (REG_CHANGED(CB.IO.Idx[i]))
@@ -952,82 +976,18 @@ void GpioControl()
             if (i < sizeof(portPinMap) / sizeof(portPinMap[0]))
             {
                 PortPin pp = portPinMap[i];
-                BIT_CHECK(reg, GPIO_VAL) ? HAL_GPIO_WritePin(pp.port, pp.pin, GPIO_PIN_SET)
-                                         : HAL_GPIO_WritePin(pp.port, pp.pin, GPIO_PIN_RESET);
+                BIT_CHECK(reg, GPIO_VAL)
+                ? HAL_GPIO_WritePin(pp.port, pp.pin, GPIO_PIN_SET)
+                : HAL_GPIO_WritePin(pp.port, pp.pin, GPIO_PIN_RESET);
             }
         }
     }
 }
 
-/*
-void GpioControl()
-{
-    uint8_t reg;
-    foreach_io()
-    {
-        if (REG_CHANGED(CB.IO.Idx[i]))
-        {
-            reg = pReg->CB.IO.Idx[i];
-            switch (i)
-            {
-            case 0:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(A, 2) : CLEAR(A, 2);
-            }
-            break;
-            case 1:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(A, 3) : CLEAR(A, 3);
-            }
-            break;
-            case 2:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 3) : CLEAR(B, 3);
-            }
-            break;
-            case 3:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 5) : CLEAR(B, 5);
-            }
-            break;
-            case 4:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 6) : CLEAR(B, 6);
-            }
-            break;
-            case 5:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 7) : CLEAR(B, 7);
-            }
-            break;
-            case 6:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 13) : CLEAR(B, 13);
-            }
-            break;
-            case 7:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(B, 15) : CLEAR(B, 15);
-            }
-            break;
-            case 8:
-            {
-                BIT_CHECK(reg, GPIO_VAL) ? SET(D, 2) : CLEAR(D, 2);
-            }
-            break;
-            default:
-                break;
-            }
-        }
-    }
-}
-*/
 void ADCproces()
 {
     for (int i = 0; i <= adcChAmount; i++)
-    {
         ADC_Volt[i] = ADC_raw[i] * (3.3 / 4095);
-    }
 
     ADC_data[0] = ADC_Volt[0] / 0.085; // 28V
     ADC_data[1] = ADC_Volt[1] * 11.9;  /// 0.12;		//Vin
@@ -1235,7 +1195,8 @@ void Btn_Hndl(void)
                 CreateTimer(&PowerOffDelay_Tim, 0, pressTimeToOff, 0, ACTIVE, PowerOffDelay_Hndl);
             }
         }
-        else // Button was hold less than pressTimeToOff time - clear timer,cancel off procedure
+        else // Button was hold less than pressTimeToOff time - clear timer,cancel
+             // off procedure
         {
             if (GetTimerState(&PowerOffDelay_Tim) != DONE)
             {

@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define PA_AMOUNT (6)
+#define PA_AMOUNT (1)
 
 typedef __packed struct
 {
@@ -55,7 +55,12 @@ typedef __packed struct
     uint8_t FAN_ALARM_FLAG;   // 19
     uint8_t PROTECTION;       // 20
     uint8_t MIN_PWM;          // 21
-    gpioMap_t IO;             // 22..30
+    uint8_t SWITCH_CONTROL;
+    uint8_t SWITCH_MANUAL_POS;
+    uint8_t SWITCH_ENTITY_IDX;
+    uint8_t SWITCH_DELAY_MS_L;
+    uint8_t SWITCH_DELAY_MS_H;
+    gpioMap_t IO; // 22..30
 } CONTROL_BOARD_INTERNAL_REGS;
 
 typedef __packed struct
@@ -81,6 +86,12 @@ typedef __packed struct
     CONTROL_BOARD_INTERNAL_REGS CB; // 0 - 30
     EXTERNAL_PA_REGS PA[PA_AMOUNT]; // 31 - 186
 } CONTROL_BOARD_REGS_t;
+
+enum SWITCH_CONTROL_BITS
+{
+    SWITCH_CONTROL_RUN = 0, // or Stop
+    SWITCH_CONTROL_MANUAL   // or auto switch
+};
 
 enum MAIN_CONTROL_BITS
 {
